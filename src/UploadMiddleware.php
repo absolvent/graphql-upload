@@ -1,65 +1,42 @@
 <?php
 
-declare(strict_types=1);
-
 namespace GraphQL\Upload;
 
-use GraphQL\Error\InvariantViolation;
+use Closure;
 use GraphQL\Server\RequestError;
-use GraphQL\Utils\Utils;
-use Psr\Http\Message\ResponseInterface;
-use Psr\Http\Message\ServerRequestInterface;
-use Psr\Http\Server\MiddlewareInterface;
-use Psr\Http\Server\RequestHandlerInterface;
+use Illuminate\Http\Request;
 
-class UploadMiddleware implements MiddlewareInterface
+class FileUpload
 {
-    public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
-    {
-        $request = $this->processRequest($request);
-
-        return $handler->handle($request);
-    }
-
     /**
-     * Process the request and return either a modified request or the original one
+     * Handle an incoming request.
      *
-     * @param ServerRequestInterface $request
-     *
-     * @return ServerRequestInterface
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \Closure  $next
+     * @return mixed
      */
-    public function processRequest(ServerRequestInterface $request): ServerRequestInterface
+    public function handle($request, Closure $next)
     {
-        $contentType = $request->getHeader('content-type')[0] ?? '';
+        $contentType = $request->headers->get('Content-Type');
 
-        if (mb_stripos($contentType, 'multipart/form-data') !== false) {
+        if (starts_with($contentType, 'multipart/form-data;')) {
             $this->validateParsedBody($request);
-            $request = $this->parseUploadedFiles($request);
+            $result = $this->parseUploadedFiles($request);
+            $request->replace($result);
         }
 
-        return $request;
+        return $next($request);
     }
 
-    /**
-     * Inject uploaded files defined in the 'map' key into the 'variables' key
-     *
-     * @param ServerRequestInterface $request
-     *
-     * @return ServerRequestInterface
-     */
-    private function parseUploadedFiles(ServerRequestInterface $request): ServerRequestInterface
+
+    private function parseUploadedFiles(Request $request)
     {
-        $bodyParams = $request->getParsedBody();
+        $bodyParams = $request->toArray();
         if (!isset($bodyParams['map'])) {
             throw new RequestError('The request must define a `map`');
         }
-
         $map = json_decode($bodyParams['map'], true);
         $result = json_decode($bodyParams['operations'], true);
-        if (isset($result['operationName'])) {
-            $result['operation'] = $result['operationName'];
-            unset($result['operationName']);
-        }
 
         foreach ($map as $fileKey => $locations) {
             foreach ($locations as $location) {
@@ -71,39 +48,29 @@ class UploadMiddleware implements MiddlewareInterface
                     $items = &$items[$key];
                 }
 
-                $items = $request->getUploadedFiles()[$fileKey];
+                $items = $request->file($fileKey);
             }
         }
 
-        return $request
-            ->withHeader('content-type', 'application/json')
-            ->withParsedBody($result);
+        return $result;
     }
 
-    /**
-     * Validates that the request meet our expectations
-     *
-     * @param ServerRequestInterface $request
-     */
-    private function validateParsedBody(ServerRequestInterface $request): void
+    private function validateParsedBody(Request $request): void
     {
-        $bodyParams = $request->getParsedBody();
-
+        $bodyParams = $request->toArray();
         if (null === $bodyParams) {
-            throw new InvariantViolation(
-                'PSR-7 request is expected to provide parsed body for "multipart/form-data" requests but got null'
+            throw new \Exception(
+                'request is expected to provide parsed body for "multipart/form-data" requests but got null'
             );
         }
-
         if (!is_array($bodyParams)) {
-            throw new RequestError(
-                'GraphQL Server expects JSON object or array, but got ' . Utils::printSafeJson($bodyParams)
+            throw new \Exception(
+                'GraphQL Server expects JSON object or array, but got something else'
             );
         }
-
         if (empty($bodyParams)) {
-            throw new InvariantViolation(
-                'PSR-7 request is expected to provide parsed body for "multipart/form-data" requests but got empty array'
+            throw new \Exception(
+                'request is expected to provide parsed body for "multipart/form-data" requests but got empty array'
             );
         }
     }
