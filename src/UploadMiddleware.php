@@ -19,7 +19,7 @@ class FileUpload
     {
         $contentType = $request->headers->get('Content-Type');
 
-        if (starts_with($contentType, 'multipart/form-data;')) {
+        if (starts_with($contentType, 'multipart/form-data;') OR $request->files->count()) {
             $this->validateParsedBody($request);
             $result = $this->parseUploadedFiles($request);
             $request->replace($result);
