@@ -64,4 +64,17 @@ class UploadType extends ScalarType
     {
         throw new Error('`Upload` cannot be hardcoded in query, be sure to conform to GraphQL multipart request specification. Instead got: ' . $valueNode->kind, [$valueNode]);
     }
+
+    /**
+     * @return UploadType|null
+     */
+    public static function getInstance() {
+        static $inst = null;
+
+        if ($inst === null) {
+            $inst = new UploadType();
+        }
+
+        return $inst;
+    }
 }
